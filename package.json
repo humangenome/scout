@@ -1,23 +1,27 @@
 {
   "name": "scout",
   "version": "0.1.0",
-  "description": "Voice-first Claude Code assistant — open source, self-hosted, privacy-first",
+  "description": "AI voice assistant powered by Claude — open source, self-hosted, privacy-first",
   "main": "dist/server.js",
+  "bin": {
+    "scout": "dist/cli/scout.js"
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "nodemon --watch src --ext ts --exec 'tsc && node dist/server.js'",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cli.json",
+    "dev": "nodemon --watch src --ext ts --exec 'npm run build && node dist/server.js'",
     "start": "node dist/server.js",
     "clean": "rm -rf dist"
   },
   "keywords": [
     "claude",
     "voice-assistant",
-    "claude-code",
     "ai-assistant",
-    "self-hosted"
+    "self-hosted",
+    "open-source"
   ],
   "license": "MIT",
   "dependencies": {
+    "better-sqlite3": "^11",
     "dotenv": "^16",
     "express": "^5",
     "node-pty": "^1",
@@ -26,6 +30,7 @@
     "ws": "^8"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7",
     "@types/express": "^5",
     "@types/ws": "^8",
     "nodemon": "^3",
