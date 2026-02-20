@@ -1,0 +1,39 @@
+[
+  {
+    "label": "Weather",
+    "icon": "cloud-sun",
+    "command": "What's the current weather from the E street house weather station?",
+    "color": "#4A90D9"
+  },
+  {
+    "label": "Solar",
+    "icon": "sun",
+    "command": "How's solar production today? Show current output and daily total.",
+    "color": "#F5A623"
+  },
+  {
+    "label": "Calendar",
+    "icon": "calendar",
+    "command": "What's on my calendar for today and tomorrow?",
+    "color": "#7B68EE"
+  },
+  {
+    "label": "HA Status",
+    "icon": "home",
+    "command": "Give me a quick Home Assistant status — any entities unavailable or in error state?",
+    "color": "#50C878"
+  },
+  {
+    "label": "Lights",
+    "icon": "lightbulb",
+    "command": "What lights are currently on in the house?",
+    "color": "#FFD700"
+  },
+  {
+    "label": "Stop",
+    "icon": "stop-circle",
+    "command": "\u0003",
+    "color": "#E74C3C",
+    "special": "ctrl-c"
+  }
+]
