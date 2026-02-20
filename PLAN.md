@@ -1,115 +1,129 @@
-# Scout: Voice-First Claude Code Assistant
+# Scout: AI Voice Assistant Powered by Claude
 
 ## Vision
 
-Scout puts Claude Code behind a conversational voice interface. Say "hey scout" followed by a query; Scout transcribes it, pipes it to a Claude Code session, displays the response in a terminal, and speaks it back. Custom buttons provide quick-tap commands. An idle screen shows ambient info.
+Scout is an **AI voice assistant** that replaces Siri, Google Assistant, and Alexa — powered by Claude Code instead of proprietary AI. It controls your smart home, answers questions, manages your schedule, and runs agentic coding tasks — all through natural voice conversation.
 
-Scout is a **consumer software stack**, not a hardware project. It runs on any device with a browser — tablets in kiosk mode, Raspberry Pi, laptops, phones. Companion Android/iOS apps provide a native mobile experience.
+Three clients, one server:
 
-**API choices**: OpenAI Whisper API (STT), OpenAI TTS API (TTS).
+| Client | Mode | Voice | Target use |
+|--------|------|-------|------------|
+| **Terminal CLI** | Text only | No | Continue conversations from your desktop. Free. Like `claude` CLI with session management. |
+| **Phone app** | Conversational + voice | Yes (wake word, STT, TTS) | On-the-go assistant. Replaces Siri / Google Assistant. |
+| **Tablet app** | Hub + voice + ambient | Yes (always-listening, idle screen, buttons) | Smart home hub. Replaces Alexa / Google Home. |
+
+All three connect to the **same session pool** on the server. Start a conversation on your phone, pick it up on your desktop, see results on the tablet.
+
+**APIs**: OpenAI Whisper (STT), OpenAI TTS (TTS), Claude Code (agentic AI).
 **Business model**: Open source core (trust) + managed cloud hosting (revenue) + premium app features (revenue).
-
----
-
-## Business Model & Monetization
-
-### The OpenClaw Playbook
-
-[OpenClaw](https://github.com/openclaw/openclaw) is a viral open-source AI agent that exploded in early 2026. Key lessons:
-- **100% open source, BYOK** (bring your own API key) — builds massive trust
-- Creator Peter Steinberger made zero money directly from the open source project
-- **YC startups built hosting businesses on top**: [Clawdhost](https://clawdhost.net) ($24/mo), [SimpleClaw](https://simpleclaw.com) (~$44/mo), [xCloud](https://xcloud.host) ($24/mo), [OpenClaw Cloud](https://www.getopenclaw.ai/pricing) ($39/mo)
-- Users choose: self-host for free, or pay for convenience
-- Trust comes from: code is open, your data stays local, you can audit everything
-- The ecosystem is now worth millions — OpenAI acquired Steinberger and put OpenClaw under a foundation
-
-**Scout follows the same model** — open source builds the community and trust, managed hosting captures the revenue from users who don't want to run servers.
-
-### Why Open Source Is Essential
-
-Scout has access to your microphone, your voice, your personal data, and your home. Nobody will trust a closed-source product with that. Open source means:
-- Anyone can audit what the mic data touches (it goes to OpenAI Whisper API and nowhere else)
-- Anyone can verify there's no telemetry, no data collection, no spying
-- Self-hosters keep everything on their own network
-- Security researchers can find and report vulnerabilities
-- The community builds trust faster than any marketing budget
-
-### Revenue Tiers
-
-| Tier | Price | What they get | Target |
-|------|-------|---------------|--------|
-| **Scout Free** | $0 | Full open source server + web client. Self-hosted. BYOK (Anthropic + OpenAI keys). | Developers, privacy maximalists, tinkerers |
-| **Scout Cloud** | $20-40/mo | Managed cloud container with Claude Code pre-installed. Your own isolated instance with CLAUDE.md, MCPs, files. One-click setup, no server needed. BYOK for API keys. | Prosumers who want it working in 5 minutes |
-| **Scout Pro** (app) | $5-10/mo | Premium native app features: background wake word, custom wake words, multi-device sync, premium TTS voices, home screen widgets, themes. | Mobile-first users |
-| **Scout Teams** | $50-200/mo | Multiple Scout stations per account. Custom CLAUDE.md per station. Usage dashboards, audit logs. White-label option. | Small businesses, smart offices |
-
-### Revenue Projections (conservative)
-
-| Milestone | Users | Cloud subs | App subs | Monthly revenue |
-|-----------|-------|-----------|----------|----------------|
-| 6 months | 500 | 20 @ $30 | 50 @ $7 | ~$950 |
-| 12 months | 5,000 | 150 @ $30 | 400 @ $7 | ~$7,300 |
-| 24 months | 25,000 | 800 @ $30 | 2,000 @ $7 | ~$38,000 |
-
-### How Scout Cloud Works (main revenue driver)
-
-Each paying customer gets their own isolated container:
-```
-Customer's Scout Cloud Container
-├── Claude Code (happy) running in PTY
-├── Their CLAUDE.md (customized for their home/workflow)
-├── Their MCP servers (calendar, HA, custom tools)
-├── Their files and configs
-├── Scout server (Node.js)
-└── Accessible via their Scout app/browser
-```
-
-We handle: provisioning, uptime, updates, backups, secure tunneling.
-They handle: their API keys (Anthropic + OpenAI), their CLAUDE.md config.
-
-### Comparable Pricing
-
-- OpenClaw Cloud: from $39/mo
-- Clawdhost: $24/mo
-- Mycroft Enterprise: $1,500/mo per server
-- Home Assistant Cloud (Nabu Casa): $7.50/mo
-
----
-
-## Supported Platforms
-
-Scout is a web app served from a Node.js server. Any device with a modern browser can use it.
-
-| Platform | How it runs | Notes |
-|----------|------------|-------|
-| **Tablet (kiosk)** | Fully Kiosk Browser or Chrome, always-on | Primary target |
-| **Raspberry Pi** | Chromium kiosk mode | Dedicated display with touchscreen |
-| **Phone (Android)** | PWA → future native app | Companion for on-the-go |
-| **Phone (iOS)** | PWA → future native app | iOS mic/audio constraints |
-| **Desktop browser** | Chrome/Firefox/Safari | Dev/testing or desktop use |
 
 ---
 
 ## Architecture
 
 ```
-Any Device (thin client)                   Server (Node.js)
-┌────────────────────────┐                ┌─────────────────────────────┐
-│ Browser / PWA / App    │                │ scout/dist/server.js        │
-│ https://scout:3333     │     WSS        │                             │
-│                        │◄──────────────►│ Express + WebSocket + PTY   │
-│                        │                │                             │
-│ Mic → audio.js         │  audio chunks  │ ├─ OpenAI Whisper API (STT) │
-│   → WebSocket stream   ────────────────►│ ├─ node-pty → happy          │
-│                        │                │ │   --dangerously-skip-perms │
-│                        │  terminal data │ │   (Claude Code w/ MCPs)    │
-│ xterm.js terminal     ◄────────────────│ ├─ OpenAI TTS API           │
-│                        │                │ └─ HA REST API (ambient)    │
-│ Speaker ← TTS audio   ◄────────────────│                             │
-│                        │                │ CLAUDE.md + MCPs loaded     │
-│ Touch: buttons, typing │                │                             │
-└────────────────────────┘                └─────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Scout Server                             │
+│                   (Node.js on your box)                         │
+│                                                                 │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────────┐  │
+│  │ Session Mgr  │  │ Audio Pipeline│  │ PTY Manager           │  │
+│  │ • create     │  │ • Whisper STT │  │ • spawn claude CLI    │  │
+│  │ • resume     │  │ • OpenAI TTS  │  │ • I/O forwarding      │  │
+│  │ • timeout    │  │ • wake word   │  │ • auto-restart        │  │
+│  │ • metadata   │  │   (hybrid)    │  │ • resize              │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬────────────┘  │
+│         │                 │                      │               │
+│         └─────────────────┼──────────────────────┘               │
+│                           │                                      │
+│                    WebSocket Server                               │
+│                    (Express + ws)                                 │
+└───────────────────────────┼──────────────────────────────────────┘
+                            │
+              ┌─────────────┼──────────────┐
+              │             │              │
+     ┌────────▼───┐  ┌─────▼─────┐  ┌─────▼──────┐
+     │ Terminal    │  │ Phone App │  │ Tablet App  │
+     │ CLI (text)  │  │ (voice)   │  │ (hub mode)  │
+     │             │  │           │  │             │
+     │ scout start │  │ "Hey      │  │ Always-on   │
+     │ scout ls    │  │  Scout"   │  │ ambient     │
+     │ scout resume│  │           │  │ display     │
+     └─────────────┘  └───────────┘  └─────────────┘
 ```
+
+---
+
+## Session Management
+
+Scout owns the session lifecycle. Each session wraps a Claude Code `--resume` session ID with Scout metadata.
+
+### Smart Session Routing (timeout-based)
+
+- **Active session** (idle < timeout): Next query continues the same session.
+- **Stale session** (idle > timeout): Next query starts a fresh session. Default timeout: configurable (e.g. 15 min).
+- **Manual override**: "Hey scout, new session" / "Hey scout, continue last session" (voice commands) or New/Continue buttons in UI.
+
+### Session Pool
+
+```
+Scout Session DB (JSON/SQLite)
+├── session-001: { claude_id: "abc-123", name: "Refactor auth", created: ..., last_active: ..., project: "scout" }
+├── session-002: { claude_id: "def-456", name: "Weather check", created: ..., last_active: ..., project: null }
+└── session-003: { claude_id: "ghi-789", name: "HA automation", created: ..., last_active: ..., project: "homeassistant" }
+```
+
+All clients see the same pool. Terminal CLI, phone app, tablet — all can resume any session.
+
+---
+
+## Three Clients
+
+### 1. Terminal CLI (`scout` command)
+
+Thin wrapper around Claude CLI with session management. No voice. Free.
+
+```bash
+scout start                    # New session (spawns claude --dangerously-skip-permissions)
+scout ls                       # List all sessions (like dev ls)
+scout resume 3                 # Resume session 3
+scout resume                   # Resume most recent active session
+scout stop                     # Stop current session
+scout server start|stop|status # Manage the Scout server
+```
+
+Feels like native `claude` CLI but with Scout's session management, auto-resume, and multi-device continuity.
+
+### 2. Phone App (native — Android + iOS)
+
+Conversational voice assistant. Replaces Siri / Google Assistant.
+
+- **Hybrid wake word**: On-device detection (WASM/TFLite in client), server-side STT (Whisper)
+- **Configurable wake word**: Users set their own wake phrase
+- **Visual activation**: Screen indicator when wake word detected (no chime by default)
+- **Smart TTS**: Context-aware — speaks responses when input was voice, silent when input was text
+- **Smart output**: Plain text is spoken; for code/technical output says "I wrote the code, check the terminal"
+- **User-configurable voice**: Pick from OpenAI TTS voices (nova, onyx, echo, alloy, fable, shimmer)
+- **Background listening**: Native app can listen for wake word even when backgrounded/screen off
+- **Session continuity**: Same session pool as terminal and tablet
+
+### 3. Tablet App (web-based — kiosk/hub mode)
+
+Always-on smart home hub. Replaces Alexa Show / Google Home Hub.
+
+- Everything the phone app has, plus:
+- **Always-listening**: Continuous wake word detection
+- **Idle screen**: After configurable timeout → ambient display (clock, weather, solar — all from HA REST API, zero token usage)
+- **Button bar**: Quick-tap commands from `config/buttons.json` (JSON file config only)
+- **xterm.js terminal**: Full Claude Code terminal visible on screen
+- **Multi-client shared session**: Multiple browsers can connect to the same PTY — all see and can type
+- **Auto-restart**: If Claude process crashes, auto-respawn
+
+---
+
+## Design
+
+**Clean light + dark mode**. Modern, polished consumer feel (like Apple apps). Supports both light and dark themes. Touch-friendly, responsive from phone to tablet to desktop.
 
 ---
 
@@ -119,126 +133,131 @@ Any Device (thin client)                   Server (Node.js)
 ~/projects/scout/
 ├── package.json
 ├── tsconfig.json
-├── .env                           # OPENAI_API_KEY, HA_URL, HA_TOKEN, PORT
+├── .env
 ├── src/                           # Server (TypeScript → dist/)
 │   ├── server.ts                  # Express + WebSocket + orchestration
-│   ├── pty-manager.ts             # node-pty: spawn happy, I/O, resize, restart
+│   ├── pty-manager.ts             # node-pty: spawn claude, I/O, resize, auto-restart
+│   ├── session-manager.ts         # Session lifecycle: create, resume, timeout, metadata
 │   ├── audio-pipeline.ts          # PCM buffering → WAV → Whisper API → text
 │   ├── tts-speaker.ts             # Text → OpenAI TTS → MP3 chunks → client
-│   ├── output-parser.ts           # Parse Claude output, extract speakable text
-│   ├── ambient-data.ts            # HA REST API → weather, solar, time
+│   ├── output-parser.ts           # Parse Claude output, extract speakable text, smart detection
+│   ├── ambient-data.ts            # HA REST API → weather, solar, time (zero tokens)
 │   └── config.ts                  # Env vars, constants
-├── public/                        # Client (served statically)
-│   ├── index.html                 # App shell: responsive, mobile-first
+├── cli/                           # Terminal CLI (`scout` command)
+│   └── scout.ts                   # CLI entry point: start, ls, resume, stop, server
+├── public/                        # Web client (served statically)
+│   ├── index.html                 # App shell: header + terminal + footer
 │   ├── manifest.json              # PWA manifest
-│   ├── sw.js                      # Service worker
-│   ├── scout.css                  # Dark theme, touch-friendly, responsive
-│   ├── scout.js                   # Main: WebSocket, view switching, state
-│   ├── terminal.js                # xterm.js setup + WebSocket bridge
-│   ├── audio.js                   # Mic capture → AudioWorklet → WebSocket
-│   ├── pcm-processor.js           # AudioWorklet: 16kHz mono PCM extraction
-│   ├── idle-screen.js             # Clock + weather + solar ambient display
-│   ├── buttons.js                 # Render button bar from config
-│   ├── icons/                     # PWA icons (192x192, 512x512)
+│   ├── scout.css                  # Light/dark theme, responsive, touch-friendly
+│   ├── scout.js                   # WebSocket, state, view switching
+│   ├── terminal.js                # xterm.js + WebSocket bridge
+│   ├── audio.js                   # Mic → AudioWorklet → WebSocket
+│   ├── pcm-processor.js           # AudioWorklet: 16kHz mono PCM
+│   ├── wake-word.js               # Client-side wake word detection (WASM/TFLite)
+│   ├── idle-screen.js             # Ambient display (clock, weather, solar from HA)
+│   ├── buttons.js                 # Button bar from config
+│   ├── icons/
 │   └── sounds/
-│       ├── wake.mp3               # "Listening" chime
-│       └── done.mp3               # "Done" chime
+│       └── done.mp3               # Completion chime
+├── app/                           # Native app (React Native / Expo — future)
+│   └── ...
 ├── config/
-│   └── buttons.json               # Custom button definitions
+│   └── buttons.json               # Button definitions (JSON file only)
 └── scripts/
-    └── setup-tablet.md            # Tablet/kiosk setup instructions
+    └── setup-tablet.md            # Kiosk setup guide
 ```
 
 ---
 
 ## Phased Build Order
 
-### Phase 1: Web Terminal
-**Goal**: Browser shows xterm.js with a live Claude Code session. Type commands, see responses.
+### Phase 1: Server + Web Terminal
+**Goal**: Scout server with xterm.js in the browser. Type commands, see Claude respond. Multi-client shared session.
 
-Files:
-- `src/server.ts` — Express serves public/, WebSocket bridges to PTY
-- `src/pty-manager.ts` — Spawn `happy --dangerously-skip-permissions`, forward I/O, resize, auto-restart
+- `src/server.ts` — Express serves public/, WebSocket bridges to PTY, supports multiple clients
+- `src/pty-manager.ts` — Spawn `claude --dangerously-skip-permissions`, forward I/O, resize, auto-restart on crash
 - `src/config.ts` — Env vars, port, project dir
-- `public/index.html` — Responsive layout: terminal + status bar
+- `public/index.html` — Layout: header bar + terminal + footer bar (scaffold for future phases)
 - `public/terminal.js` — xterm.js init, WebSocket, keyboard forwarding
 - `public/scout.js` — WebSocket connection manager, view state
-- `public/scout.css` — Dark theme, responsive
+- `public/scout.css` — Light/dark theme, responsive (phone → tablet → desktop)
 
-**Test**: Open `http://localhost:3333` → xterm.js → type → Claude responds.
+**Test**: Open `http://localhost:3333` in multiple browsers → all see same terminal → type → Claude responds.
 
-### Phase 2: Push-to-Talk Voice Input
-**Goal**: Tap mic button, speak, release. Transcription typed into Claude.
+### Phase 2: Session Management
+**Goal**: Scout CLI + session lifecycle. Create, list, resume, timeout-based routing.
 
-Files:
-- `src/audio-pipeline.ts` — Accumulate PCM, build WAV, send to Whisper API, return text
+- `src/session-manager.ts` — Session DB (JSON), create/resume/list/timeout logic
+- `cli/scout.ts` — `scout start`, `scout ls`, `scout resume`, `scout stop`
+- Server WebSocket extended: session-aware routing
+- Timeout-based auto-new-session (configurable)
+- Manual override: "new session" / "continue" via UI buttons
+
+**Test**: `scout start` → type → wait past timeout → new query starts fresh session → `scout ls` shows both → `scout resume 1` picks up old session.
+
+### Phase 3: Voice Input (Push-to-Talk + Wake Word)
+**Goal**: Tap mic or say "hey scout" to speak. Transcription sent to Claude.
+
+- `src/audio-pipeline.ts` — Accumulate PCM, build WAV, Whisper API → text → raw paste to PTY stdin
 - `public/audio.js` — getUserMedia, AudioWorklet, stream PCM to server
-- `public/pcm-processor.js` — AudioWorklet: extract 16kHz mono PCM
+- `public/pcm-processor.js` — AudioWorklet: 16kHz mono PCM
+- `public/wake-word.js` — Client-side wake word detection (hybrid: detect on client, STT on server)
+- Configurable wake word
+- Visual-only activation (screen indicator, no chime)
+- After wake word → buffer audio until silence (VAD) → Whisper → PTY
 
-**Flow**: Tap mic → browser captures audio → streams base64 PCM over WebSocket → release → server builds WAV → Whisper API → text → PTY stdin → Claude responds.
+**Test**: Tap mic → speak → release → text appears → Claude responds. Say "hey scout, what time is it" → visual indicator → transcription → response.
 
-### Phase 3: TTS Voice Output
-**Goal**: Claude's text responses spoken aloud through device speakers.
+### Phase 4: TTS Voice Output
+**Goal**: Claude's responses spoken aloud. Smart detection — only speak conversational text.
 
-Files:
-- `src/tts-speaker.ts` — Text → OpenAI TTS API (tts-1, voice "nova") → stream MP3 to client
-- `src/output-parser.ts` — Detect response completion, extract conversational text (skip ANSI, tool calls, code blocks)
+- `src/tts-speaker.ts` — Text → OpenAI TTS API → stream MP3 chunks to client
+- `src/output-parser.ts` — Detect response completion (2s silence heuristic), extract speakable text, skip ANSI/code/tool calls. For code output: "I wrote the code, check the terminal."
+- Context-aware TTS: on when input was voice, off when input was keyboard
+- User-configurable voice selection
 
-**Heuristic**: 2+ seconds PTY silence after output → grab last plain text block → strip ANSI → TTS.
+**Test**: Voice query → Claude responds → hear spoken response. Type query → Claude responds → no audio.
 
-### Phase 4: Button Bar + Idle Screen
-**Goal**: Quick-tap command buttons. Ambient display when idle.
+### Phase 5: Button Bar + Idle Screen
+**Goal**: Quick-tap buttons. Ambient display on idle.
 
-Files:
-- `config/buttons.json` — Button definitions (label, icon, command, color)
-- `public/buttons.js` — Render buttons, on tap send command to PTY
-- `src/ambient-data.ts` — Fetch HA sensor data via REST API
-- `public/idle-screen.js` — Clock + weather + solar, auto-show after 60s idle
+- `config/buttons.json` — Button definitions (JSON file only)
+- `public/buttons.js` — Render buttons, tap sends command to PTY
+- `src/ambient-data.ts` — HA REST API → weather, solar, time (zero token usage)
+- `public/idle-screen.js` — Ambient display after configurable timeout
 
-Initial buttons: Weather, Solar, Calendar, HA Status, Lights, Stop (Ctrl+C).
+**Test**: Tap "Weather" → response. Wait past idle timeout → ambient screen → tap → back to terminal.
 
-### Phase 5: PWA
-**Goal**: Install Scout to phone home screen. Native app feel.
+### Phase 6: PWA + HTTPS
+**Goal**: Installable on phones/tablets. Full-screen app experience.
 
-Files:
-- `public/manifest.json` — App name, icons, theme, display: standalone
-- `public/sw.js` — Cache app shell, pass-through WebSocket
-- `public/icons/` — 192x192, 512x512
-- HTTPS via reverse proxy or Tailscale Funnel
+- `public/manifest.json` — PWA manifest
+- `public/icons/` — App icons
+- HTTPS: document both Tailscale Funnel and Nginx/Caddy reverse proxy options
+- Online only (no offline/service worker caching)
 
-### Phase 6: "Hey Scout" Wake Word
-**Goal**: Always-listening, activates on "hey scout", no button press.
+**Test**: Phone → "Add to Home Screen" → launch → full-screen Scout.
 
-Approach — **server-side openWakeWord**:
-- Browser continuously streams low-bandwidth audio to server
-- Server runs openWakeWord Python subprocess for "hey scout"
-- On detection → chime → buffer until silence (VAD) → Whisper → PTY
-- Train custom TFLite model via openWakeWord synthetic data pipeline
+### Phase 7: Terminal CLI
+**Goal**: `scout` command for desktop/terminal use.
 
-### Phase 7: dev.sh Integration
-**Goal**: `dev scout` starts/stops the Scout server.
+- `cli/scout.ts` — Full CLI: start, ls, resume, stop, server management
+- Connects to same session pool as phone/tablet
+- npm bin / global install
 
-Already partially done — `dev sc` creates Claude sessions. Add:
-```bash
-scout)
-  local scout_dir="$HOME/projects/scout"
-  if [ "$2" = "stop" ]; then
-    pkill -f "node.*scout.*server" && echo "Scout stopped"
-  elif [ "$2" = "status" ]; then
-    pgrep -a -f "node.*scout.*server" || echo "Scout not running"
-  else
-    cd "$scout_dir" && node dist/server.js
-  fi ;;
-```
+**Test**: `scout start` → Claude session → `scout ls` → `scout resume` from another terminal.
 
-### Phase 8: Native Companion Apps (future)
-**Goal**: Native Android + iOS apps with background wake word.
+### Phase 8: Native Companion Apps
+**Goal**: Native Android + iOS with background wake word. Priority feature.
 
-Approach — **React Native (Expo)**:
+- React Native (Expo) — one codebase, both platforms
 - Same WebSocket protocol as web
-- Picovoice Porcupine for on-device wake word
-- Push notifications
-- One codebase, both platforms
+- Picovoice Porcupine or similar for on-device background wake word
+- Push notifications when Scout completes long tasks
+- Home screen widgets
+- Background listening even with screen off
+
+**Test**: Install app → "hey scout" with screen off → wakes up → voice query → spoken response.
 
 ---
 
@@ -251,8 +270,11 @@ Approach — **React Native (Expo)**:
 | `audio-start` | | Begin voice recording |
 | `audio-chunk` | `data: string` (base64 PCM) | Audio data (~100ms chunks) |
 | `audio-stop` | | End recording, trigger STT |
-| `command` | `text: string` | Button command text |
+| `command` | `text: string` | Button command / voice override ("new session") |
 | `resize` | `cols, rows` | Terminal resize |
+| `session-list` | | Request session list |
+| `session-resume` | `id: string` | Resume a specific session |
+| `session-new` | | Force new session |
 
 ### Server → Client
 | type | fields | description |
@@ -262,7 +284,60 @@ Approach — **React Native (Expo)**:
 | `transcription` | `text: string` | Whisper result |
 | `tts-audio` | `data: string` (base64 MP3), `done: bool` | TTS audio chunk |
 | `ambient` | `{weather, solar, time}` | Ambient data |
+| `session-info` | `{id, name, created, last_active}` | Current session info |
+| `session-list` | `[{id, name, last_active}]` | All sessions |
 | `error` | `message: string` | Error message |
+
+---
+
+## Business Model & Monetization
+
+### The OpenClaw Playbook
+
+[OpenClaw](https://github.com/openclaw/openclaw) exploded in early 2026. 100% open source, BYOK. Creator made $0 directly. YC startups built hosting businesses on top: Clawdhost ($24/mo), SimpleClaw (~$44/mo), xCloud ($24/mo), OpenClaw Cloud ($39/mo). Trust from open source, revenue from convenience.
+
+Scout follows the same model.
+
+### Why Open Source Is Essential
+
+Scout accesses your microphone, voice, personal data, and home. Nobody trusts closed-source with that. Open source means:
+- Audit what mic data touches (Whisper API and nowhere else)
+- Verify no telemetry, no data collection
+- Self-hosters keep everything on their network
+- Community builds trust faster than marketing
+
+### Revenue Tiers
+
+| Tier | Price | What they get | Target |
+|------|-------|---------------|--------|
+| **Scout Free** | $0 | Full server + terminal CLI + web client. Self-hosted. BYOK. | Developers, tinkerers |
+| **Scout Cloud** | $20-40/mo | Managed container with Claude Code. Your CLAUDE.md, MCPs, files. One-click setup. BYOK for API keys. | Prosumers who want it in 5 minutes |
+| **Scout Pro** (app) | $5-10/mo | Premium native app: background wake word, custom wake words, multi-device sync, premium voices, widgets, themes. | Mobile-first users |
+| **Scout Teams** | $50-200/mo | Multiple stations per account. Per-station CLAUDE.md. Dashboards, audit logs. White-label. | Businesses, smart offices |
+
+### Revenue Projections (conservative)
+
+| Milestone | Users | Cloud subs | App subs | Monthly revenue |
+|-----------|-------|-----------|----------|----------------|
+| 6 months | 500 | 20 @ $30 | 50 @ $7 | ~$950 |
+| 12 months | 5,000 | 150 @ $30 | 400 @ $7 | ~$7,300 |
+| 24 months | 25,000 | 800 @ $30 | 2,000 @ $7 | ~$38,000 |
+
+### Scout Cloud (main revenue driver)
+
+Each customer gets an isolated container:
+```
+Customer's Scout Cloud Container
+├── Claude Code running in PTY
+├── Their CLAUDE.md
+├── Their MCP servers
+├── Their files and configs
+├── Scout server (Node.js)
+└── Accessible via app/browser
+```
+
+We handle: provisioning, uptime, updates, backups, tunneling.
+They handle: their API keys (Anthropic + OpenAI), their config.
 
 ---
 
@@ -294,37 +369,34 @@ xterm.js + addons loaded from CDN in the browser.
 ## Estimated API Costs
 
 ~30 voice queries/day: **~$2.40/month** (Whisper ~$0.90 + TTS ~$1.50).
-With always-on wake word streaming (Phase 6): **~$6/month**.
+Wake word detection is on-device (hybrid approach) — no API cost for listening.
 
 ---
 
 ## Verification Checklist
 
-1. **Phase 1**: Open `http://localhost:3333` → xterm.js → type → Claude responds
-2. **Phase 2**: Tap mic → speak → release → text in terminal → Claude responds
-3. **Phase 3**: Same + hear response through speakers
-4. **Phase 4**: Tap "Weather" → response. Wait 60s → idle screen → tap → terminal
-5. **Phase 5**: Phone → "Add to Home Screen" → launch from icon → full-screen
-6. **Phase 6**: Say "hey scout, how's solar" → chime → transcription → response + TTS
-7. **Phase 7**: `dev scout` starts → `dev scout stop` stops
-8. **Phase 8**: Native app with background wake word
+1. **Phase 1**: `http://localhost:3333` → multiple browsers → shared terminal → type → Claude responds
+2. **Phase 2**: `scout start` / `scout ls` / `scout resume` → timeout creates new session
+3. **Phase 3**: "Hey scout, how's the weather" → visual indicator → transcription → response
+4. **Phase 4**: Voice query → spoken response. Typed query → no audio.
+5. **Phase 5**: Tap "Weather" button → response. Idle timeout → ambient screen.
+6. **Phase 6**: Phone → Add to Home Screen → full-screen Scout PWA.
+7. **Phase 7**: `scout start` from terminal → resume on phone → same session.
+8. **Phase 8**: Native app → "hey scout" with screen off → response.
 
 ---
 
-## Go-to-Market Strategy
+## Go-to-Market
 
-### Phase A: Build in Public (during Phases 1-6)
-- Open source on GitHub from day one
-- Build updates on X/Twitter
-- Demo videos of voice interactions
-- Target: HA community, Claude Code users, privacy-focused AI enthusiasts
+### Phase A: Build First
+Product first. README is the landing page. Marketing when there's something to demo.
 
-### Phase B: Community Launch (after Phase 5)
+### Phase B: Community Launch (after Phase 6 — PWA)
 - Hacker News, Reddit r/homeassistant, r/selfhosted, r/LocalLLaMA
-- "Show HN: Scout — open-source voice assistant that puts Claude Code on any tablet"
+- "Show HN: Scout — open-source voice assistant powered by Claude, replaces Alexa/Siri"
 - Goal: 500 GitHub stars, 100 self-hosted users
 
-### Phase C: Scout Cloud Launch (after community validation)
+### Phase C: Scout Cloud Launch
 - Managed hosting, simple onboarding
 - Free tier → paid tiers
 - Target early adopters from open source community
@@ -332,4 +404,4 @@ With always-on wake word streaming (Phase 6): **~$6/month**.
 ### Phase D: App Store Launch (Phase 8)
 - Native Android + iOS
 - Free + Scout Pro subscription
-- App Store presence for non-technical users
+- App Store presence legitimizes for non-technical users
