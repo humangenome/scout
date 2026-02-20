@@ -121,6 +121,7 @@ Do not skip ahead. Phase 0 before Phase 1, etc. Each phase should be fully worki
 
 ### RULE 4: Git & Deployment
 
+- Commit and push after every change. Don't let work pile up uncommitted.
 - Commit and push working code only. Don't commit broken builds.
 - Descriptive commit messages explaining what changed and why.
 - No `git clean`, `git reset --hard`, or force pushes without explicit approval.
