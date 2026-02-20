@@ -1,6 +1,6 @@
 # Scout
 
-AI voice assistant powered by Claude. Open source, self-hosted.
+AI voice assistant powered by Claude. Open source, self-hosted, privacy-first.
 
 ## Clients
 
@@ -12,19 +12,73 @@ AI voice assistant powered by Claude. Open source, self-hosted.
 
 All share one session pool on the server.
 
+## Deployment
+
+Scout runs as an always-on server — your assistant is always reachable from any device.
+
+### Native Linux
+
+Simplest path. `npm install && npm run build && npm start`. Use systemd or pm2 to keep it running. User runs `claude login` once for subscription auth, or sets `ANTHROPIC_API_KEY` for API billing.
+
+### Docker
+
+Dockerfile + docker-compose.yml included. Key details:
+- Base image: `node:20` (Debian — Alpine breaks node-pty and better-sqlite3 native addons).
+- `init: true` required — Tini reaps zombie PTY children and forwards signals.
+- `restart: unless-stopped` — auto-recovers from crashes and reboots, respects manual stops.
+- Claude CLI installed via `npm install -g @anthropic-ai/claude-code` with `DISABLE_AUTOUPDATER=1`.
+- Runs as non-root `node` user (required for `--dangerously-skip-permissions`).
+
+Persistent volumes:
+- `~/.claude` — Claude CLI credentials + session history. Survives container rebuilds.
+- `data/` — SQLite database. Use WAL mode, never share across containers.
+- `config/` — buttons.json (read-only mount).
+
+Resource limits: 4GB memory cap, 2 CPU cores. Health check: `GET /health`.
+
+### Networking (remote access)
+
+Clients connect remotely via WSS. Options:
+
+| Method | Setup | Tradeoff |
+|--------|-------|----------|
+| **Tailscale** (recommended) | Install on server + each device. Private mesh VPN. | Only your devices. No ports exposed. Free. |
+| Cloudflare Tunnel | Outbound tunnel, no port forwarding. | Needs domain on Cloudflare. Adds latency. |
+| Caddy reverse proxy | Port forward + auto-HTTPS via Let's Encrypt. | Exposes home IP. Lowest latency. |
+
+Tailscale is best for personal use — install on server and phone/tablet, access via MagicDNS (`scout:3333`). Tailscale encrypts at the network layer; add Caddy for HTTPS if needed for getUserMedia/service workers.
+
+### Claude CLI auth
+
+Two paths:
+1. **Subscription (Max/Pro)**: Run `claude login` once during setup. Browser-based OAuth. Credentials persist in `~/.claude`. In Docker, run interactively once then restart normally.
+2. **API key**: Set `ANTHROPIC_API_KEY` env var. No interactive login. Pay-per-use rates.
+
+### Graceful shutdown
+
+SIGTERM/SIGINT: kill all PTY children, close WebSocket connections with close frame, close SQLite. Clients auto-reconnect with exponential backoff (1s, 2s, 4s, max 30s).
+
 ## Security
 
 - Token auth on WSS handshake. No unauthenticated connections.
 - WSS-only in production. getUserMedia requires secure context.
 - Origin checking.
 - Claude safe mode by default. `--dangerously-skip-permissions` opt-in.
-- PTY: drop privileges, resource limits, single-thread ownership (node-pty not thread-safe).
+- PTY: drop privileges, resource limits, single-thread ownership (node-pty not thread-safe). Container isolation handles most privilege concerns.
 - Per-client rate limits. Audio budget (max minutes/day). Cost kill-switch.
 
 ## Sessions
 
-SQLite. State machine: idle, busy, cooldown.
+SQLite (WAL mode). State machine: idle, busy, cooldown.
 
+State transitions:
+- `idle` → `busy`: client sends input (terminal-input or audio-stop)
+- `busy` → `cooldown`: Claude response complete
+- `cooldown` → `idle`: cooldown timer expires (configurable, default 3s)
+- any → auto-new-session: idle timeout exceeded on next input (default 15 min)
+- `busy` + client disconnects: 5s grace period, then lock release → `cooldown`
+
+Rules:
 - Timeout routing: idle > N minutes = next query starts new session. Configurable, default 15 min.
 - Locking: client acquires input lock on send. Others become read-only. Lock auto-releases after response + cooldown. Optimistic versioning prevents races.
 - Manual override: "new session" / "continue" via voice commands or UI buttons.
@@ -45,8 +99,8 @@ Visual-only activation (no chime). Audio only sent to server after trigger.
 
 ## Voice
 
-- STT: Whisper API. Binary WebSocket frames. Raw transcription pasted to PTY stdin.
-- TTS: OpenAI TTS. Binary MP3 frames to client. Context-aware: speaks on voice input, silent on keyboard. User-configurable voice.
+- STT: Whisper API. Binary WebSocket frames (16kHz mono 16-bit PCM, chunked every 250ms). Raw transcription pasted to PTY stdin.
+- TTS: OpenAI TTS. Streamed MP3 chunks to client as received from API. Context-aware: speaks on voice input, silent on keyboard. User-configurable voice.
 - Output parsing: `claude --output-format json` for structured boundaries. Fallback: 2s silence + ANSI strip. Speaks plain text, skips code/tools.
 
 ## WebSocket Protocol (v1)
@@ -109,12 +163,16 @@ scout/
     (React Native)
   config/
     buttons.json
+  data/
+    (SQLite database — gitignored)
+  Dockerfile
+  docker-compose.yml
 ```
 
 ## Build Phases
 
-**0. Auth + HTTPS**
-Token auth, WSS, origin checking, HTTPS (Tailscale Funnel or Nginx/Caddy).
+**0. Auth + HTTPS + Deployment**
+Token auth, WSS, origin checking, `GET /health` endpoint. Dockerfile + docker-compose.yml. Document native Linux and Docker setup paths.
 
 **1. Server + Web Terminal**
 Express + WSS + node-pty + xterm.js. Single authenticated client. SQLite sessions. Auto-restart.
@@ -145,7 +203,9 @@ React Native (Expo). Android: foreground service for background wake word. iOS: 
 | Risk | Mitigation |
 |------|------------|
 | iOS background wake word rejected | Phase 5 spike. Fallback: push-to-talk, Siri Shortcut, foreground-only. |
-| node-pty privilege escalation | Container isolation, drop privileges, resource limits. |
+| node-pty privilege escalation | Container isolation (Docker), drop privileges, resource limits. |
+| Claude CLI memory leaks | 4GB container memory cap. OOM-killed → auto-restart via `unless-stopped`. |
+| Claude CLI auth in headless env | API key bypasses OAuth. Subscription users run `claude login` once, persist ~/.claude. |
 | Multi-client PTY races | Input lock + optimistic versioning + state machine. |
 | Custom wake words not a text field | Ship curated .ppn models. Custom via Porcupine Console. |
 | Output parsing brittle | --output-format json primary. Silence heuristic fallback. |
@@ -153,13 +213,13 @@ React Native (Expo). Android: foreground service for background wake word. iOS: 
 
 ## Dependencies
 
-express 5, ws 8, node-pty 1, openai 4, dotenv 16, strip-ansi 7, better-sqlite3 11
+express 5, ws 8, node-pty 1, openai 4, dotenv 16, strip-ansi 6 (v7 is ESM-only, incompatible with CJS build), better-sqlite3 11
 
 xterm.js + Porcupine from CDN.
 
 ## Verification
 
-0. No token = rejected. Valid token + WSS = connected.
+0. No token = rejected. Valid token + WSS = connected. `GET /health` returns 200. `docker compose up` starts and passes health check.
 1. Browser, terminal, type, Claude responds.
 2. Two browsers. Lock holder types. Observer watches. Timeout creates new session.
 3. "Hey scout" triggers visual indicator, transcription, response.
